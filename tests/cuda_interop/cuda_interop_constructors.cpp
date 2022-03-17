@@ -10,7 +10,7 @@
 
 #ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
 #include "../../util/test_base_cuda.h"
-#include <cuda.h>
+
 #endif
 
 #define TEST_NAME cuda_interop_constructors
@@ -55,11 +55,11 @@ class TEST_NAME :
        */
       {
         sycl::platform platform =
-            sycl::make_platform<sycl::backend::ext_oneapi_cuda>(&m_cu_platform);
+            sycl::make_platform<sycl::backend::ext_oneapi_cuda>(m_cu_platform);
 
-	std::vector<CUdevice>* interopPlatformID =
+	std::vector<CUdevice> interopPlatformID =
             sycl::get_native<sycl::backend::ext_oneapi_cuda>(platform);
-        if (*interopPlatformID != m_cu_platform) {
+        if (interopPlatformID != m_cu_platform) {
           FAIL(log, "platform was not constructed correctly");
         }
       }

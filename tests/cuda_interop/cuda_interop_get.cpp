@@ -10,6 +10,7 @@
 
 #ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
 #include "../../util/test_base_cuda.h"
+
 #endif
 
 #define TEST_NAME cuda_interop_get
@@ -57,10 +58,10 @@ class TEST_NAME :
         auto platform = util::get_cts_object::platform(ctsSelector);
         auto interopPlatform =
             sycl::get_native<sycl::backend::ext_oneapi_cuda>(platform);
-        check_return_type<std::vector<CUdevice>>(log, *interopPlatform,
+        check_return_type<std::vector<CUdevice>>(log, interopPlatform,
                                                  "get_native(platform)");
 
-        if (interopPlatform->size() == 0) {
+        if (interopPlatform.size() == 0) {
           FAIL(log,
                "get_native(platform) did not return a valid "
                "std::vector<CUdevice>");

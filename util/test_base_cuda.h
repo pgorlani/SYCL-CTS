@@ -10,6 +10,9 @@
 #define __SYCLCTS_UTIL_TEST_BASE_CUDA_H
 
 #include "test_base.h"
+
+#include <sycl/sycl.hpp>
+#include <sycl/ext/oneapi/experimental/backend/cuda.hpp>
 #include <cuda.h>
 
 // conformance test suite namespace

@@ -1,0 +1,227 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ed5adaf..aee5db4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -11,7 +11,7 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+ find_package(OpenCL REQUIRED)
+ find_package(PythonInterp 3 REQUIRED)
+ 
+-find_package(CUDA 10.0 REQUIRED)
++find_package(CUDA REQUIRED)
+ 
+ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/vendor/Catch2/CMakeLists.txt")
+     message(FATAL_ERROR "The git submodule vendor/Catch2 is missing.\nTry running `git submodule update --init`.")
+@@ -121,6 +121,8 @@ option(SYCL_CTS_ENABLE_CUDA_INTEROP_TESTS
+ 	"Enable CUDA interoperability tests." ON)
+ if(SYCL_CTS_ENABLE_CUDA_INTEROP_TESTS)
+     add_host_and_device_compiler_definitions(-DSYCL_CTS_TEST_CUDA_INTEROP)
++    add_host_and_device_compiler_definitions(-DSYCL_EXT_ONEAPI_BACKEND_CUDA_EXPERIMENTAL)
++    add_host_and_device_compiler_definitions(-DSYCL_EXT_ONEAPI_BACKEND_CUDA)
+ endif()
+ # ------------------
+ 
+diff --git a/tests/cuda_interop/cuda_interop_constructors.cpp b/tests/cuda_interop/cuda_interop_constructors.cpp
+index 72f8892..914c657 100644
+--- a/tests/cuda_interop/cuda_interop_constructors.cpp
++++ b/tests/cuda_interop/cuda_interop_constructors.cpp
+@@ -10,7 +10,7 @@
+ 
+ #ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
+ #include "../../util/test_base_cuda.h"
+-#include <cuda.h>
++
+ #endif
+ 
+ #define TEST_NAME cuda_interop_constructors
+@@ -55,11 +55,11 @@ class TEST_NAME :
+        */
+       {
+         sycl::platform platform =
+-            sycl::make_platform<sycl::backend::ext_oneapi_cuda>(&m_cu_platform);
++            sycl::make_platform<sycl::backend::ext_oneapi_cuda>(m_cu_platform);
+ 
+-	std::vector<CUdevice>* interopPlatformID =
++	std::vector<CUdevice> interopPlatformID =
+             sycl::get_native<sycl::backend::ext_oneapi_cuda>(platform);
+-        if (*interopPlatformID != m_cu_platform) {
++        if (interopPlatformID != m_cu_platform) {
+           FAIL(log, "platform was not constructed correctly");
+         }
+       }
+diff --git a/tests/cuda_interop/cuda_interop_get.cpp b/tests/cuda_interop/cuda_interop_get.cpp
+index ee76139..84e8002 100644
+--- a/tests/cuda_interop/cuda_interop_get.cpp
++++ b/tests/cuda_interop/cuda_interop_get.cpp
+@@ -10,6 +10,7 @@
+ 
+ #ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
+ #include "../../util/test_base_cuda.h"
++
+ #endif
+ 
+ #define TEST_NAME cuda_interop_get
+@@ -57,10 +58,10 @@ class TEST_NAME :
+         auto platform = util::get_cts_object::platform(ctsSelector);
+         auto interopPlatform =
+             sycl::get_native<sycl::backend::ext_oneapi_cuda>(platform);
+-        check_return_type<std::vector<CUdevice>>(log, *interopPlatform,
++        check_return_type<std::vector<CUdevice>>(log, interopPlatform,
+                                                  "get_native(platform)");
+ 
+-        if (interopPlatform->size() == 0) {
++        if (interopPlatform.size() == 0) {
+           FAIL(log,
+                "get_native(platform) did not return a valid "
+                "std::vector<CUdevice>");
+diff --git a/tests/host_task/cuda_host_task_interop_api.cpp b/tests/host_task/cuda_host_task_interop_api.cpp
+new file mode 100644
+index 0000000..12d0ff9
+--- /dev/null
++++ b/tests/host_task/cuda_host_task_interop_api.cpp
+@@ -0,0 +1,132 @@
++/*******************************************************************************
++//
++//  SYCL 2020 Conformance Test Suite
++//
++//  Provide verification for sycl::interop_handle::get_native functions
++//  this test check interop API with OpenCL back-end only.
++//
++*******************************************************************************/
++
++#include "../common/common.h"
++
++#ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
++
++#include <sycl/ext/oneapi/experimental/backend/cuda.hpp>
++#include <cuda.h>
++
++#endif  // SYCL_EXT_ONEAPI_BACKEND_CUDA
++
++#define TEST_NAME cuda_host_task_interop_api
++
++namespace TEST_NAMESPACE {
++using namespace sycl_cts;
++
++class TEST_NAME : public sycl_cts::util::test_base {
++  /** return information about this test
++   */
++  void get_info(test_base::info& out) const override {
++    set_test_info(out, TOSTRING(TEST_NAME), TEST_FILE);
++  }
++
++#ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
++  CUresult call_cuda(CUcontext ctx, CUdeviceptr mem, size_t size, uint32_t pattern) {
++    cuCtxSetCurrent(ctx);
++    CUresult ret = cuMemsetD32(mem, pattern, size);
++    if (ret != CUDA_SUCCESS)
++      FAIL(log, "CUDA invocation returned error code.");
++
++    return ret;
++  }
++#endif  // SYCL_EXT_ONEAPI_BACKEND_CUDA
++
++  /** execute this test
++   */
++  void run(util::logger& log) override {
++#ifdef SYCL_EXT_ONEAPI_BACKEND_CUDA
++    {
++      sycl::queue q{util::get_cts_object::queue()};
++      if (q.get_backend() != sycl::backend::ext_oneapi_cuda) {
++        log.note("Interop part is not supported on OpenCL backend type");
++        return;
++      }
++
++      // check get_native_queue
++      {
++        CUstream cu_native_queue;
++        q.submit([&](sycl::handler& cgh) {
++          cgh.host_task([=, &cu_native_queue](sycl::interop_handle ih) {
++            cu_native_queue = ih.get_native_queue<sycl::backend::ext_oneapi_cuda>();
++          });
++        });
++        q.wait_and_throw();
++
++        if (cu_native_queue != sycl::get_native<sycl::backend::ext_oneapi_cuda>(q))
++          FAIL(log, "get_native_queue query has failed.");
++      }
++
++      // check get_native_device
++      {
++        CUdevice cu_native_device;
++        q.submit([&](sycl::handler& cgh) {
++          cgh.host_task([=, &cu_native_device](sycl::interop_handle ih) {
++            cu_native_device = ih.get_native_device<sycl::backend::ext_oneapi_cuda>();
++          });
++        });
++        q.wait_and_throw();
++
++        if (cu_native_device !=
++            sycl::get_native<sycl::backend::ext_oneapi_cuda>(q.get_device()))
++          FAIL(log, "get_native_device query has failed.");
++      }
++
++      // check get_native_context
++      {
++        std::vector<CUcontext> cu_native_context{nullptr};
++        q.submit([&](sycl::handler& cgh) {
++          cgh.host_task([=, &cu_native_context](sycl::interop_handle ih) {
++            cu_native_context = ih.get_native_context<sycl::backend::ext_oneapi_cuda>();
++          });
++        });
++        q.wait_and_throw();
++
++        if (cu_native_context !=
++            sycl::get_native<sycl::backend::ext_oneapi_cuda>(q.get_context()))
++          FAIL(log, "get_native_context query has failed.");
++      }
++
++      // execute CUDA function
++      {
++        const size_t size{16};
++        const uint32_t pattern{13};
++        sycl::buffer<uint32_t, 1> buf(sycl::range<1>{size});
++        q.submit([&](sycl::handler& cgh) {
++          auto buf_acc_dev{buf.get_access<sycl::access_mode::read_write>(cgh)};
++          cgh.host_task([=](sycl::interop_handle ih) {
++            auto* native_mem = ih.get_native_mem<sycl::backend::ext_oneapi_cuda>(buf_acc_dev);
++
++            std::vector<CUcontext> native_ctx = ih.get_native_context<sycl::backend::ext_oneapi_cuda>();
++
++            // must have at least one context
++            assert(native_ctx.size() > 0);
++            call_cuda(native_ctx[0], CUdeviceptr(native_mem), size, pattern);
++          });
++        }).wait();
++
++        {
++          auto buf_acc_host{buf.get_access<sycl::access_mode::read>()};
++          for (int i = 0; i < size; ++i) {
++            if (buf_acc_host[i] != pattern)
++              FAIL(log, "CUDA invocation has failed.");
++          }
++          std::cout << std::endl;
++        }
++      }   
++    }
++#else
++    log.note("The test is skipped because CUDA back-end is not supported");
++#endif  // SYCL_EXT_ONEAPI_BACKEND_CUDA
++  }
++};
++
++util::test_proxy<TEST_NAME> proxy;
++}  // namespace TEST_NAMESPACE
+diff --git a/util/test_base_cuda.h b/util/test_base_cuda.h
+index d9b9ce2..9a1f255 100644
+--- a/util/test_base_cuda.h
++++ b/util/test_base_cuda.h
+@@ -10,6 +10,9 @@
+ #define __SYCLCTS_UTIL_TEST_BASE_CUDA_H
+ 
+ #include "test_base.h"
++
++#include <sycl/sycl.hpp>
++#include <sycl/ext/oneapi/experimental/backend/cuda.hpp>
+ #include <cuda.h>
+ 
+ // conformance test suite namespace
